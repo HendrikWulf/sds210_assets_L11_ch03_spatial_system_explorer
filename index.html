@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborating Objects: Spatial System Explorer</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --text-main: #334155;
+            --primary: #2563eb;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #ca8a04;
+            --warning-bg: rgba(234, 179, 8, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px 20px;
+            gap: 20px;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            color: #0f172a;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: row;
+            gap: 30px;
+            max-width: 1000px;
+            width: 100%;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        /* Canvas Styles */
+        .canvas-wrapper {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        canvas {
+            background-color: #ffffff;
+            cursor: grab;
+            border-radius: 8px;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        /* Dashboard Styles */
+        .dashboard {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            width: 100%;
+            max-width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .dashboard h3 {
+            font-size: 1.2rem;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+        }
+
+        .stat-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.95rem;
+            background: #f1f5f9;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .stat-label {
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-family: monospace;
+            font-size: 1.05rem;
+            font-weight: bold;
+        }
+
+        .val-a { color: #dc2626; }
+        .val-b { color: #2563eb; }
+        .val-c { color: #16a34a; }
+
+        .badge-true {
+            background-color: #dcfce7;
+            color: #166534;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+
+        .badge-false {
+            background-color: #fee2e2;
+            color: #991b1b;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 800px) {
+            .container {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Interactive Spatial System Explorer</h2>
+
+    <div class="container">
+        <!-- Canvas Left -->
+        <div class="canvas-wrapper">
+            <canvas id="spatialCanvas" width="500" height="500"></canvas>
+        </div>
+
+        <!-- Dashboard Right -->
+        <div class="dashboard">
+            <h3>Live Object State</h3>
+            
+            <div class="stat-group">
+                <div class="stat-row">
+                    <span class="stat-label val-a">Point A (GeoPoint)</span>
+                    <span class="stat-value val-a" id="posA">(0.00, 0.00)</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label val-b">Point B (GeoPoint)</span>
+                    <span class="stat-value val-b" id="posB">(3.00, 4.00)</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label val-c">Point C (GeoPoint)</span>
+                    <span class="stat-value val-c" id="posC">(6.00, 4.00)</span>
+                </div>
+            </div>
+
+            <h3>Method Outputs</h3>
+            
+            <div class="stat-group">
+                <div class="stat-row">
+                    <span class="stat-label">bbox.contains(B)</span>
+                    <span class="stat-value badge-true" id="bInBox">True</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">route.total_length()</span>
+                    <span class="stat-value" id="routeLen" style="color: #475569;">0.00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. System Setup & Configuration ---
+        const canvas = document.getElementById('spatialCanvas');
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width;
+        const H = canvas.height;
+
+        // Grid boundaries (10x10 units)
+        const X_MIN = -2, X_MAX = 8;
+        const Y_MIN = -2, Y_MAX = 8;
+        const SCALE_X = W / (X_MAX - X_MIN);
+        const SCALE_Y = H / (Y_MAX - Y_MIN);
+
+        // Map abstract coordinates to pixel coordinates (Y is inverted in canvas)
+        function toPx(x, y) {
+            return {
+                px: (x - X_MIN) * SCALE_X,
+                py: H - (y - Y_MIN) * SCALE_Y
+            };
+        }
+
+        // Map pixel coordinates to abstract math coordinates
+        function toCoord(px, py) {
+            return {
+                x: (px / SCALE_X) + X_MIN,
+                y: Y_MIN + (H - py) / SCALE_Y
+            };
+        }
+
+        // --- 2. Initial Data State ---
+        let points = {
+            A: { x: 0, y: 0, color: '#dc2626' }, // Red
+            B: { x: 3, y: 4, color: '#2563eb' }, // Blue
+            C: { x: 6, y: 4, color: '#16a34a' }  // Green
+        };
+
+        const bbox = { minX: -1, minY: -1, maxX: 5, maxY: 5 };
+        let draggingPoint = null;
+
+        // --- 3. Interaction Logic ---
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseCoord = toCoord(e.clientX - rect.left, e.clientY - rect.top);
+
+            // Check if user clicked near a point (hit radius of 0.4 units)
+            for (let key in points) {
+                const pt = points[key];
+                const dist = Math.sqrt(Math.pow(pt.x - mouseCoord.x, 2) + Math.pow(pt.y - mouseCoord.y, 2));
+                if (dist < 0.4) {
+                    draggingPoint = key;
+                    break;
+                }
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!draggingPoint) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseCoord = toCoord(e.clientX - rect.left, e.clientY - rect.top);
+            
+            // Constrain point dragging to grid limits
+            points[draggingPoint].x = Math.max(X_MIN, Math.min(X_MAX, mouseCoord.x));
+            points[draggingPoint].y = Math.max(Y_MIN, Math.min(Y_MAX, mouseCoord.y));
+            
+            draw();
+        });
+
+        canvas.addEventListener('mouseup', () => draggingPoint = null);
+        canvas.addEventListener('mouseleave', () => draggingPoint = null);
+
+        // --- 4. Rendering & Calculation Logic ---
+        function formatVal(val) { return val.toFixed(2); }
+
+        function calculateDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+
+            // A. Draw Grid & Axes
+            ctx.lineWidth = 1;
+            for (let x = X_MIN; x <= X_MAX; x++) {
+                let px = toPx(x, 0).px;
+                ctx.strokeStyle = x === 0 ? '#94a3b8' : '#f1f5f9';
+                ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
+            }
+            for (let y = Y_MIN; y <= Y_MAX; y++) {
+                let py = toPx(0, y).py;
+                ctx.strokeStyle = y === 0 ? '#94a3b8' : '#f1f5f9';
+                ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+            }
+
+            // B. Draw Static Bounding Box
+            let boxTopLeft = toPx(bbox.minX, bbox.maxY);
+            let boxW = (bbox.maxX - bbox.minX) * SCALE_X;
+            let boxH = (bbox.maxY - bbox.minY) * SCALE_Y;
+            
+            ctx.fillStyle = 'rgba(234, 179, 8, 0.15)'; // Yellow transparent
+            ctx.strokeStyle = '#ca8a04';
+            ctx.lineWidth = 2;
+            ctx.fillRect(boxTopLeft.px, boxTopLeft.py, boxW, boxH);
+            ctx.strokeRect(boxTopLeft.px, boxTopLeft.py, boxW, boxH);
+
+            // C. Draw Route (Connecting Line)
+            let pA = toPx(points.A.x, points.A.y);
+            let pB = toPx(points.B.x, points.B.y);
+            let pC = toPx(points.C.x, points.C.y);
+
+            ctx.strokeStyle = '#64748b';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(pA.px, pA.py);
+            ctx.lineTo(pB.px, pB.py);
+            ctx.lineTo(pC.px, pC.py);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
+
+            // D. Draw Points
+            for (let key in points) {
+                let pt = points[key];
+                let pxPos = toPx(pt.x, pt.y);
+                
+                ctx.beginPath();
+                ctx.arc(pxPos.px, pxPos.py, 8, 0, Math.PI * 2);
+                ctx.fillStyle = pt.color;
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Point Labels
+                ctx.fillStyle = '#1e293b';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.fillText(key, pxPos.px + 12, pxPos.py - 12);
+            }
+
+            updateDashboard();
+        }
+
+        function updateDashboard() {
+            // Update Coordinate Tracking
+            document.getElementById('posA').textContent = `(${formatVal(points.A.x)}, ${formatVal(points.A.y)})`;
+            document.getElementById('posB').textContent = `(${formatVal(points.B.x)}, ${formatVal(points.B.y)})`;
+            document.getElementById('posC').textContent = `(${formatVal(points.C.x)}, ${formatVal(points.C.y)})`;
+
+            // Update Bounding Box Contains Logic
+            const bInBox = (points.B.x >= bbox.minX && points.B.x <= bbox.maxX && 
+                            points.B.y >= bbox.minY && points.B.y <= bbox.maxY);
+            
+            const bBoxBadge = document.getElementById('bInBox');
+            bBoxBadge.textContent = bInBox ? "True" : "False";
+            bBoxBadge.className = bInBox ? "stat-value badge-true" : "stat-value badge-false";
+
+            // Update Route Math
+            const routeLength = calculateDistance(points.A, points.B) + calculateDistance(points.B, points.C);
+            document.getElementById('routeLen').textContent = formatVal(routeLength);
+        }
+
+        // Initialize App
+        draw();
+    </script>
+</body>
+</html>
